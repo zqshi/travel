@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+dist/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Claude
+.claude/
