@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { sendCode, verifyCode, isLoggedIn } from "@/lib/auth";
+import { sendCode, verifyCode, isLoggedIn, ApiError, getWeChatLoginUrl, isWeChatBrowser } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +16,14 @@ export default function LoginPage() {
   useEffect(() => {
     if (isLoggedIn()) {
       router.replace("/chat");
+    }
+    // Show error from OAuth redirect
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get("error");
+    if (oauthError) {
+      setError(oauthError);
+      // Clean URL
+      window.history.replaceState({}, "", "/login");
     }
   }, [router]);
 
@@ -37,6 +45,10 @@ export default function LoginPage() {
       setStep("code");
       setCountdown(60);
     } catch (err) {
+      if (err instanceof ApiError && err.isRateLimited && err.retryAfter) {
+        setCountdown(err.retryAfter);
+        setStep("code");
+      }
       setError(err instanceof Error ? err.message : "发送失败");
     } finally {
       setLoading(false);
@@ -54,10 +66,19 @@ export default function LoginPage() {
       await verifyCode(phone, code);
       router.replace("/chat");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "验证失败");
+      if (err instanceof ApiError && err.isRateLimited && err.retryAfter) {
+        setError(`验证错误次数过多，请${formatDuration(err.retryAfter)}后再试`);
+      } else {
+        setError(err instanceof Error ? err.message : "验证失败");
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleWeChatLogin = () => {
+    const platform = isWeChatBrowser() ? "mp" : "";
+    window.location.href = getWeChatLoginUrl(platform || undefined);
   };
 
   return (
@@ -148,6 +169,24 @@ export default function LoginPage() {
               更换手机号
             </button>
           )}
+
+          {/* Divider */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted">其他登录方式</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          {/* WeChat Login */}
+          <button
+            onClick={handleWeChatLogin}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-[#07C160] text-[#07C160] font-medium text-sm hover:bg-[#07C160] hover:text-white transition-all duration-200"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 01.213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 00.167-.054l1.903-1.114a.864.864 0 01.717-.098 10.16 10.16 0 002.837.403c.276 0 .543-.027.811-.05a6.093 6.093 0 01-.253-1.72c0-3.571 3.326-6.47 7.43-6.47.259 0 .499.032.75.049C16.633 4.884 13.045 2.188 8.691 2.188zm-2.35 4.09c.56 0 1.015.46 1.015 1.025 0 .566-.456 1.025-1.015 1.025-.56 0-1.014-.46-1.014-1.025 0-.566.455-1.025 1.014-1.025zm4.707 0c.56 0 1.014.46 1.014 1.025 0 .566-.455 1.025-1.014 1.025-.56 0-1.015-.46-1.015-1.025 0-.566.456-1.025 1.015-1.025zm5.621 3.122c-3.543 0-6.42 2.467-6.42 5.508 0 3.042 2.877 5.508 6.42 5.508a7.346 7.346 0 002.322-.378.636.636 0 01.526.072l1.394.816a.24.24 0 00.122.04.213.213 0 00.213-.217c0-.053-.02-.105-.035-.156l-.286-1.084a.433.433 0 01.156-.488c1.337-.986 2.194-2.448 2.194-4.113 0-3.04-2.878-5.508-6.42-5.508h-.186zm-2.348 2.678c.41 0 .742.336.742.75s-.332.75-.742.75-.742-.336-.742-.75.332-.75.742-.75zm4.696 0c.41 0 .742.336.742.75s-.332.75-.742.75-.742-.336-.742-.75.332-.75.742-.75z"/>
+            </svg>
+            微信登录
+          </button>
         </div>
 
         <p className="text-center text-xs text-muted/60 mt-6">
@@ -156,4 +195,13 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds >= 60) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return secs > 0 ? `${mins}分${secs}秒` : `${mins}分钟`;
+  }
+  return `${seconds}秒`;
 }

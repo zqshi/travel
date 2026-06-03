@@ -19,6 +19,11 @@ def _get_supabase():
     return create_client(settings.supabase_url, settings.supabase_key)
 
 
+def get_supabase():
+    """Public accessor for other modules."""
+    return _get_supabase()
+
+
 # In-memory fallback storage
 _mem_users: dict[str, dict] = {}
 _mem_sessions: dict[str, dict] = {}
@@ -36,10 +41,110 @@ async def get_or_create_user(phone: str) -> dict:
 
     # Memory fallback
     for u in _mem_users.values():
-        if u["phone"] == phone:
+        if u.get("phone") == phone:
             return u
     user_id = str(uuid.uuid4())
-    user = {"id": user_id, "phone": phone, "created_at": datetime.now(timezone.utc).isoformat()}
+    user = {
+        "id": user_id,
+        "phone": phone,
+        "wechat_openid": None,
+        "wechat_unionid": None,
+        "nickname": None,
+        "avatar_url": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _mem_users[user_id] = user
+    return user
+
+
+async def get_or_create_user_by_wechat(
+    openid: str,
+    unionid: str | None = None,
+    nickname: str | None = None,
+    avatar_url: str | None = None,
+) -> dict:
+    """Find user by wechat unionid/openid, or create a new one."""
+    if _use_supabase():
+        sb = _get_supabase()
+        # Try unionid first (cross-platform match)
+        if unionid:
+            result = sb.table("users").select("*").eq("wechat_unionid", unionid).execute()
+            if result.data:
+                # Update openid / profile if changed
+                user = result.data[0]
+                updates: dict = {}
+                if user.get("wechat_openid") != openid:
+                    updates["wechat_openid"] = openid
+                if nickname and user.get("nickname") != nickname:
+                    updates["nickname"] = nickname
+                if avatar_url and user.get("avatar_url") != avatar_url:
+                    updates["avatar_url"] = avatar_url
+                if updates:
+                    sb.table("users").update(updates).eq("id", user["id"]).execute()
+                    user.update(updates)
+                return user
+
+        # Try openid
+        result = sb.table("users").select("*").eq("wechat_openid", openid).execute()
+        if result.data:
+            user = result.data[0]
+            updates = {}
+            if unionid and not user.get("wechat_unionid"):
+                updates["wechat_unionid"] = unionid
+            if nickname and user.get("nickname") != nickname:
+                updates["nickname"] = nickname
+            if avatar_url and user.get("avatar_url") != avatar_url:
+                updates["avatar_url"] = avatar_url
+            if updates:
+                sb.table("users").update(updates).eq("id", user["id"]).execute()
+                user.update(updates)
+            return user
+
+        # Create new
+        new_data = {"wechat_openid": openid}
+        if unionid:
+            new_data["wechat_unionid"] = unionid
+        if nickname:
+            new_data["nickname"] = nickname
+        if avatar_url:
+            new_data["avatar_url"] = avatar_url
+        new_user = sb.table("users").insert(new_data).execute()
+        return new_user.data[0]
+
+    # Memory fallback
+    # Try unionid
+    if unionid:
+        for u in _mem_users.values():
+            if u.get("wechat_unionid") == unionid:
+                if nickname:
+                    u["nickname"] = nickname
+                if avatar_url:
+                    u["avatar_url"] = avatar_url
+                u["wechat_openid"] = openid
+                return u
+
+    # Try openid
+    for u in _mem_users.values():
+        if u.get("wechat_openid") == openid:
+            if unionid and not u.get("wechat_unionid"):
+                u["wechat_unionid"] = unionid
+            if nickname:
+                u["nickname"] = nickname
+            if avatar_url:
+                u["avatar_url"] = avatar_url
+            return u
+
+    # Create new
+    user_id = str(uuid.uuid4())
+    user = {
+        "id": user_id,
+        "phone": None,
+        "wechat_openid": openid,
+        "wechat_unionid": unionid,
+        "nickname": nickname,
+        "avatar_url": avatar_url,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
     _mem_users[user_id] = user
     return user
 

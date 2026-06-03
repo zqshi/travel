@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { isLoggedIn, getUser, clearAuth, User } from "@/lib/auth";
+import { isLoggedIn, getUser, clearAuth, getDisplayName, User } from "@/lib/auth";
 
 export function Header() {
   const router = useRouter();
@@ -33,6 +33,7 @@ export function Header() {
   if (pathname === "/chat") return null;
 
   const loggedIn = mounted && user;
+  const displayName = getDisplayName(user);
 
   return (
     <>
@@ -61,7 +62,12 @@ export function Header() {
                 比价
               </Link>
               <div className="w-px h-4 bg-border/60" />
-              <span className="text-xs text-foreground/50">{user.phone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2")}</span>
+              <div className="flex items-center gap-2">
+                {user.avatar_url && (
+                  <img src={user.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
+                )}
+                <span className="text-xs text-foreground/50">{displayName}</span>
+              </div>
               <button
                 onClick={handleLogout}
                 className="text-xs text-foreground/50 hover:text-error transition-colors"
@@ -113,7 +119,12 @@ export function Header() {
                 比价
               </Link>
               <div className="border-t border-border/40 pt-3 flex items-center justify-between">
-                <span className="text-xs text-foreground/50">{user.phone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2")}</span>
+                <div className="flex items-center gap-2">
+                  {user.avatar_url && (
+                    <img src={user.avatar_url} alt="" className="w-5 h-5 rounded-full object-cover" />
+                  )}
+                  <span className="text-xs text-foreground/50">{displayName}</span>
+                </div>
                 <button onClick={handleLogout} className="text-xs text-foreground/50 hover:text-error transition-colors">
                   退出
                 </button>

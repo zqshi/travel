@@ -6,7 +6,28 @@ const USER_KEY = "travel_user";
 
 export interface User {
   id: string;
-  phone: string;
+  phone: string | null;
+  nickname: string | null;
+  avatar_url: string | null;
+}
+
+/**
+ * Custom error for API responses, carries HTTP status and optional retry_after.
+ */
+export class ApiError extends Error {
+  status: number;
+  retryAfter: number | null;
+
+  constructor(message: string, status: number, retryAfter: number | null = null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+
+  get isRateLimited(): boolean {
+    return this.status === 429;
+  }
 }
 
 export function getToken(): string | null {
@@ -42,6 +63,44 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
+/** Get display name: nickname > masked phone > "用户" */
+export function getDisplayName(user: User | null): string {
+  if (!user) return "用户";
+  if (user.nickname) return user.nickname;
+  if (user.phone) return user.phone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2");
+  return "用户";
+}
+
+/** Build WeChat login URL (redirects to backend which redirects to WeChat) */
+export function getWeChatLoginUrl(platform?: "mp" | ""): string {
+  const params = platform ? `?platform=${platform}` : "";
+  return `${API_BASE}/api/v1/auth/wechat/login${params}`;
+}
+
+/** Detect if running inside WeChat browser */
+export function isWeChatBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /micromessenger/i.test(navigator.userAgent);
+}
+
+/**
+ * Parse an error response into an ApiError with retry_after support.
+ */
+async function parseErrorResponse(res: Response, fallbackMessage: string): Promise<ApiError> {
+  const retryAfter = res.headers.get("retry-after");
+  const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : null;
+
+  let detail = fallbackMessage;
+  try {
+    const body = await res.json();
+    detail = body.detail || fallbackMessage;
+  } catch {
+    // body not JSON, use fallback
+  }
+
+  return new ApiError(detail, res.status, retryAfterSeconds);
+}
+
 export async function sendCode(phone: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/v1/auth/send-code`, {
     method: "POST",
@@ -49,8 +108,7 @@ export async function sendCode(phone: string): Promise<void> {
     body: JSON.stringify({ phone }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "发送失败" }));
-    throw new Error(err.detail || "发送失败");
+    throw await parseErrorResponse(res, "发送失败");
   }
 }
 
@@ -61,8 +119,7 @@ export async function verifyCode(phone: string, code: string): Promise<{ token: 
     body: JSON.stringify({ phone, code }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "验证失败" }));
-    throw new Error(err.detail || "验证失败");
+    throw await parseErrorResponse(res, "验证失败");
   }
   const data = await res.json();
   setToken(data.token);
